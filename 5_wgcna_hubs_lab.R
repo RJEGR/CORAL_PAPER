@@ -248,32 +248,10 @@ sem <- function(x) {
     # return(data)
   }
 
-  # 
-  # SimMatrix <- calculateSimMatrix(x, 
-  #   orgdb = 'org.Hs.eg.db',
-  #   ont="BP", 
-  #   semdata = hsGO,
-  #   method = 'Wang')
-  # 
-  # reducedTerms <- reduceSimMatrix(SimMatrix, threshold = 0.9, orgdb = 'org.Hs.eg.db')
-  # 
-  # 
-  # y <- cmdscale(as.matrix(as.dist(1 - SimMatrix)), eig = TRUE, k = 2)
-  # 
-  # data <- cbind(as.data.frame(y$points), 
-  #   reducedTerms[match(rownames(y$points), reducedTerms$go),])
-  # 
   return(data)
   
 }
 
-
-nodeInfo %>%
-  filter(go_freq != 1) %>%
-  arrange(desc(go_freq)) %>%
-  # head(1) %>%
-  group_by(nodeName) %>%
-  summarise(sem(go)) -> parentTerm
 
 # Works good!!
 
@@ -290,31 +268,6 @@ nodeInfo %>%
 
 .parentTerm %>% right_join(.nodeInfo) -> .parentTerm
 
-p <- ggplot2::ggplot(.parentTerm, aes(x = V1, y = V2, color = as.factor(cluster))) +
-  ggplot2::geom_point(ggplot2::aes(size = pageR), alpha = 0.5) + 
-  ggplot2::scale_size_continuous(range = c(0, 10)) +
-  ggplot2::scale_x_continuous(name = "") + 
-  ggplot2::scale_y_continuous(name = "") + 
-  ggplot2::theme_minimal(base_family='GillSans') + 
-  ggplot2::theme(legend.position = 'top',
-    axis.line.x = ggplot2::element_blank(), 
-    axis.line.y = ggplot2::element_blank(),
-    strip.background = element_rect(fill = 'grey86', color = 'white')
-  ) 
-  # scale_color_manual('',values = structure(psME, names = psME))
-
-p <- p + facet_wrap(~module)
-
-data_subset <- .parentTerm %>% ungroup() %>% distinct(parentTerm, .keep_all = T)
-
-p + ggrepel::geom_label_repel(aes(label = parentTerm), 
-  data = data_subset,
-  # max.overlaps = 5,
-  box.padding = grid::unit(1, "lines"), size = 3) +
-  labs(x = 'Dimension 1', y = 'Dimension 2') -> p
-
-p + theme(legend.position = 'none')
-
 # nodeInfo %>%
 #   filter(go_freq != 1) %>%
 #   arrange(desc(go_freq)) %>%
@@ -327,16 +280,92 @@ p + theme(legend.position = 'none')
 nodeInfo %>%
   filter(go_freq != 1) %>%
   arrange(desc(go_freq)) %>%
-  head(1) %>%
+  # head(1) %>%
   group_by(nodeName) %>%
-  summarise(sem(go)) -> data
+  summarise(sem(go)) -> parentTerm
 
-nodeInfo %>% 
+# file <- paste0(path, paste(psME, collapse = '_'), '_parentTerm.rds')
+
+# write_rds(parentTerm, .parentTerm, file = file)
+
+
+.parentTerm %>% ungroup() %>% 
+  select(nodeName, parentTerm, size, parent)  %>% 
+  group_by(nodeName) %>%
+  summarise(parent_freq = length(unique(parent)),
+    parentTerm = parentTerm,
+    size = size,
+    across(parent, .fns = llist)) %>%
+  select(names(parentTerm)) -> .parentTerm
+
+rbind(parentTerm, .parentTerm) %>%
+  # distinct(nodeName, parentTerm) %>%
+  left_join(nodeInfo) -> df
+
+drop_go <- function(x) {paste(x, sep = ';', collapse = ';')}
+
+df %>%
+  mutate(parent = drop_go(parent), 
+         go = drop_go(go)) -> df
+
+write_excel_csv(df, file = paste0(path, paste(psME, collapse = '_'), '_reduceSimGO_nodes.csv'))
+
+df %>% distinct(parentTerm) # todavia se pede reducir terminos!!!
+
+df %>% ggplot(aes(size, degree)) + geom_point() + 
+  facet_wrap(~ module, scales = 'free_y')
+
+df %>%
+  filter(size > 0) %>%
   group_by(module) %>%
-    summarise(sem(unlist(go))) -> parentTerm
+  arrange(desc(size)) %>%
+  distinct(parentTerm, .keep_all = T) %>%
+  slice_sample(n = 20) %>%
+  # mutate(size = size*pageR) %>%
+  mutate(parentTerm = fct_reorder(parentTerm, size, .desc = F)) %>%
+  ggplot(aes(y = size, x = parentTerm)) +
+  geom_col() +
+  coord_flip() +
+  labs(x = 'GO parentTerm (top 20)') +
+  facet_grid(module ~ ., scales = 'free') +
+  theme_classic(base_family = "GillSans") +
+  theme(strip.background = element_rect(fill = 'grey86', color = 'white'),
+    panel.border = element_blank(), legend.position = 'top') -> p
 
+ggsave(p, path = path, filename = 'Boquita_vs_Carrizales.topDEGs.Fig5.png', 
+  width = 5, height = 5, dpi = 1000) 
 
-write_excel_csv(g_df, file = paste0(path, paste(psME, collapse = '_'), '_nodes.csv'))
+# Single batch ----
+
+nodeInfo %>%
+  group_by(module) %>%
+    summarise(sem(unlist(go))) -> data
+
+p <- ggplot2::ggplot(data, aes(x = V1, y = V2, 
+  color = as.factor(cluster))) +
+  ggplot2::geom_point(ggplot2::aes(size = size), alpha = 0.5) + 
+  ggplot2::scale_size_continuous(range = c(0, 10)) +
+  ggplot2::scale_x_continuous(name = "") + 
+  ggplot2::scale_y_continuous(name = "") + 
+  ggplot2::theme_minimal(base_family='GillSans') + 
+  ggplot2::theme(legend.position = 'top',
+    axis.line.x = ggplot2::element_blank(), 
+    axis.line.y = ggplot2::element_blank(),
+    strip.background = element_rect(fill = 'grey86', color = 'white')
+  ) 
+# scale_color_manual('',values = structure(psME, names = psME))
+
+p <- p + facet_wrap(~module)
+
+data_subset <- data %>% ungroup() %>% distinct(parentTerm, .keep_all = T)
+
+p + ggrepel::geom_label_repel(aes(label = parentTerm), 
+  data = data_subset,
+  # max.overlaps = 5,
+  box.padding = grid::unit(1, "lines"), size = 3) +
+  labs(x = 'Dimension 1', y = 'Dimension 2') -> p
+
+p + theme(legend.position = 'none')
 
 # Data viz net ----
 # 

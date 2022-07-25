@@ -97,6 +97,18 @@ modules_kegg <- bwModuleCol %>% left_join(egg_df) %>% drop_na(Kegg)
 
 cogs <- read_rds(paste0(path, '/cogs.rds'))
 
+# Process cogs patways
+
+`Information Processing` <- c('J', 'A', 'K', 'L', 'B')
+`Cellular Processes` <- c('D', 'Y', 'V', 'T', 'M', 'N', 'Z', 'U', 'O')
+`Metabolism` <- c('C', 'G', 'E', 'F', 'H', 'I', 'P', 'Q')
+
+cogsL <- c("Information Processing", "Cellular Processes","Metabolism")
+
+cogs[cogs$code %in% `Information Processing`, 'Pathway'] <- "Information Processing"
+cogs[cogs$code %in% `Cellular Processes`, 'Pathway'] <- "Cellular Processes"
+cogs[cogs$code %in% `Metabolism`, 'Pathway'] <- "Metabolism"
+
 query.ids <- modules_kegg %>% distinct(transcript) %>% pull(transcript)
 
 
@@ -124,27 +136,27 @@ col_palette <- structure(col_palette$clrs, names = col_palette$code)
 
 
 cogs %>% left_join(kegg_df) %>%
-  filter(Freq > 2) %>%
-  mutate(name = fct_reorder(name, Freq)) %>%
+  filter(Freq > 5) %>%
   filter(module %in% psME) %>%
-  # group_by(module) %>%
   mutate(Pct = Freq/sum(Freq)) %>%
-  # filter(!grepl('unknown', name)) %>%
+  filter(!grepl('unknown', name)) %>%
+  mutate(name = paste(code, name,sep = ', ')) %>%
+  mutate(name = fct_reorder(name, Freq)) %>%
   ggplot(aes(y = Freq, x = name)) + 
   geom_col() +
   coord_flip() +
   # scale_y_continuous(labels = scales::percent) +
   labs(x = '' , y = 'Number of transcripts') +
-  facet_grid( ~ module) +
+  facet_grid( module ~.) +
   geom_text(aes(label = Freq), size = 2, hjust = -0.05, family = "GillSans") +
   theme_bw(base_family = "GillSans") -> psave
 
-psave + scale_fill_manual(values = col_palette) +
+psave + 
   theme(legend.position = 'none',
     strip.background = element_rect(fill = 'grey86', color = 'white'),
     panel.border = element_blank()) -> psave
 
-# psave
+psave
 
 ggsave(psave, path = path, filename = 'eggnog_bar.png', 
   width = 8, height = 5, dpi = 1000) 
@@ -159,28 +171,33 @@ ggsave(psave, path = path, filename = 'eggnog_bar.png',
 #   coord_flip() +
 #   geom_text(aes(label = Freq), size = 3, hjust = -0.05, family = "GillSans") 
 
-cogs %>% left_join(kegg_df) %>%
+cogs %>% left_join(kegg_df) %>% drop_na(Freq) %>% summarise(sum(Freq))
   # drop_na(Freq) %>%
-  filter(Freq > 2) %>%
-  filter(!grepl('unknown', name)) %>%
+  filter(Freq > 2) %>% 
+  filter(!grepl('unknown', name)) %>% summarise(sum(Freq))
+  mutate(name = paste(code, name,sep = ', ')) %>%
   group_by(module) %>%
   mutate(pct = Freq/sum(Freq)) %>%
   mutate(name = fct_reorder(name, Freq)) %>%
   mutate(module = factor(module, levels = hclust$labels[hclust$order])) %>%
+  mutate(Pathway = factor(Pathway, levels = cogsL)) %>%
   # filter(module %in% psME) %>%
   # mutate(name = factor(name, levels = unique(name))) %>%
   ggplot(aes(y = name, x = module, fill = pct)) + 
   geom_tile(color = 'white', size = 0.5) +
   geom_text(aes(label = Freq),  vjust = 0.5, hjust = 0.5, size= 4, family = "GillSans") +
-  theme_bw(base_family = "GillSans") +
+  theme_bw(base_family = "GillSans", base_size = 14) +
   ggsci::scale_fill_material(name = "", na.value = "white",
     labels = scales::percent) -> psave
 
-psave <- psave + theme(strip.background = element_rect(fill = 'grey86', color = 'white'),
-  panel.border = element_blank())
+psave <- psave + theme(strip.background = element_rect(fill = 'white', color = 'white'),
+  panel.border = element_blank(), axis.text.x = element_text(angle = 20, 
+    hjust = 1, vjust = 1, size = 10)) + labs(x = '', y = 'eggNOG')
+
+psave + facet_grid(Pathway ~ ., scales = 'free_y', space = 'free') -> psave
 
 ggsave(psave, path = path, filename = 'eggnog_heatmap.png', 
-  width = 8.5, height = 5, dpi = 1000) 
+  width = 9.5, height = 5, dpi = 1000) 
 
 # full eggnog
 
@@ -208,4 +225,5 @@ psave + scale_fill_manual(values = col_palette) +
 ggsave(psave, path = path, filename = 'eggnog_global.png', 
   width = 6.5, height = 4.5, dpi = 1000) 
 
-#
+# information storage and processing (J, A, K, L, B), cellular processes and signaling (D, Y, V, T, M, N, Z, U, O), and metabolism (C, G, E, F, H, I, P, Q).
+

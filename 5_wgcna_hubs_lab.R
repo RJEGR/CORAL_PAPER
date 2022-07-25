@@ -4,7 +4,6 @@ library(igraph)
 library(tidygraph)
 library(tidyverse)
 
-
 rm(list = ls()) # Limpiar la memoria de la sesion de R
 if(!is.null(dev.list())) dev.off()
 
@@ -123,10 +122,11 @@ w_filter <- quantile(E(.g)$weight, probs = c(0.9))
 .g %>% activate("edges") %>%
   mutate(weight = ifelse(weight > w_filter, weight, NA)) -> g
 
-g %>% activate("edges") %>% filter(!is.na(weight))
+# g %>% activate("edges") %>% filter(!is.na(weight)) 
 
 
 hist(E(g)$weight)
+
 
 # g %>% activate("nodes") %>% 
 #   ungroup() %>%
@@ -158,18 +158,18 @@ hist(E(g)$weight)
 g %>% activate("nodes") %>%  
   mutate(
     louvain = igraph::cluster_louvain(.)$membership,
-    walktrap = cluster_walktrap(.)$membership,
-    fast_greedy = cluster_fast_greedy(.)) -> g
+    # walktrap = cluster_walktrap(.)$membership,
+    # fast_greedy = cluster_fast_greedy(.)
+    ) -> g
 
 hist(V(g)$louvain)
-hist(V(g)$walktrap)
-hist(V(g)$fast_greedy)
-
+# hist(V(g)$walktrap)
 table(V(g)$domain)
 
 g %>% activate("nodes") %>% as_tibble() -> nodeInfo
 
 
+write_rds(g, file = paste0(path, paste(psME, collapse = '_'), '_network.rds'))
 
 # go enrichment of nodes ----
 nodeInfo %>% pull(nodeName) -> query.transcripts
@@ -198,10 +198,11 @@ nodeInfo %>%
   mutate(go = unlist(go)) %>%
   left_join(.go)  -> .nodeInfo
 
-library(rrvgo)
 
-sem <- function(x) {
+sem <- function(x, top = T) {
   # if(n > 1) {
+  require(rrvgo)
+  
   hsGO <- read_rds(paste0(path, '/hsGO_BP.rds'))
   
   # x <- nodeInfo[1,3]$go
@@ -218,13 +219,18 @@ sem <- function(x) {
       method = 'Wang')
     
     data <- reduceSimMatrix(SimMatrix, threshold = 0.9, orgdb = 'org.Hs.eg.db')
-
-    data %>%
-      arrange(desc(size)) %>%
-      summarise(parent_freq = length(unique(parent)),
-        parentTerm = head(.,1)$parentTerm,
-        size = head(.,1)$size,
-        across(parent, .fns = llist)) -> data
+    
+    if(top) {
+      data %>%
+        arrange(desc(size)) %>%
+        summarise(parent_freq = length(unique(parent)),
+          parentTerm = head(.,1)$parentTerm,
+          size = head(.,1)$size,
+          across(parent, .fns = llist)) -> data 
+    } else {
+      data <- data
+    }
+      
 
     
   } else {
@@ -310,80 +316,185 @@ df %>%
 
 write_excel_csv(df, file = paste0(path, paste(psME, collapse = '_'), '_reduceSimGO_nodes.csv'))
 
-df %>% distinct(parentTerm) # todavia se pede reducir terminos!!!
+# Continue w/  -----
+
+df <- read_csv(paste0(path, paste(psME, collapse = '_'), '_reduceSimGO_nodes.csv'))
+
+df %>% count(module)
+
+# 1 blue        132
+# 2 turquoise   170
+
+df %>% distinct(parentTerm) # todavia se puede reducir terminos parent !!!
+
+x <- df$parent
+x <- sort(strsplit(unlist(x), ";")[[1]])
+
+hsGO <- read_rds(paste0(path, '/hsGO_BP.rds'))
+
+SimMatrix <- calculateSimMatrix(x, orgdb = 'org.Hs.eg.db', ont="BP", 
+  semdata = hsGO, method = 'Wang')
+
+reducedTerms <- reduceSimMatrix(SimMatrix, threshold = 0.9, orgdb = 'org.Hs.eg.db')
+
+y <- cmdscale(as.matrix(as.dist(1 - SimMatrix)), eig = TRUE, k = 2)
+
+data <- cbind(as.data.frame(y$points), 
+  reducedTerms[match(rownames(y$points), reducedTerms$go),])
+
+data 
+
+# 
+# df %>% 
+#   mutate(parent = list(parent)) %>%
+#   group_by(module) %>%
+#   summarise(sem(parent, top = FALSE)) -> .df
+
 
 df %>% ggplot(aes(size, degree)) + geom_point() + 
   facet_wrap(~ module, scales = 'free_y')
 
 df %>%
   filter(size > 0) %>%
-  group_by(module) %>%
-  arrange(desc(size)) %>%
   distinct(parentTerm, .keep_all = T) %>%
-  slice_sample(n = 20) %>%
-  # mutate(size = size*pageR) %>%
-  mutate(parentTerm = fct_reorder(parentTerm, size, .desc = F)) %>%
-  ggplot(aes(y = size, x = parentTerm)) +
+  group_by(module) %>%
+  slice_max(n = 20, order_by = size) %>%
+  # arrange(size) %>%
+  # mutate(parentTerm = factor(parentTerm, levels = parentTerm)) %>%
+  mutate(parentTerm = fct_reorder(parentTerm, pageR, .desc = F)) %>%
+  ggplot(aes(y = pageR, x = parentTerm)) +
   geom_col() +
   coord_flip() +
-  labs(x = 'GO parentTerm (top 20)') +
+  ggsci::scale_fill_material() +
+  labs(x = 'GO parentTerm (top 20)', y = 'Centrality degree') +
   facet_grid(module ~ ., scales = 'free') +
   theme_classic(base_family = "GillSans") +
   theme(strip.background = element_rect(fill = 'grey86', color = 'white'),
     panel.border = element_blank(), legend.position = 'top') -> p
 
-ggsave(p, path = path, filename = 'Boquita_vs_Carrizales.topDEGs.Fig5.png', 
+p
+
+filename <- paste0(paste(psME, collapse = '_'), '_reduceSimGO_nodes.png')
+
+ggsave(p, path = path, filename = filename, 
   width = 5, height = 5, dpi = 1000) 
 
 # Single batch ----
 
+g %>% activate("nodes") %>% as_tibble() -> nodeInfo
+
 nodeInfo %>%
   group_by(module) %>%
+  drop_na(go) %>%
     summarise(sem(unlist(go))) -> data
 
-p <- ggplot2::ggplot(data, aes(x = V1, y = V2, 
-  color = as.factor(cluster))) +
-  ggplot2::geom_point(ggplot2::aes(size = size), alpha = 0.5) + 
-  ggplot2::scale_size_continuous(range = c(0, 10)) +
-  ggplot2::scale_x_continuous(name = "") + 
-  ggplot2::scale_y_continuous(name = "") + 
-  ggplot2::theme_minimal(base_family='GillSans') + 
-  ggplot2::theme(legend.position = 'top',
-    axis.line.x = ggplot2::element_blank(), 
-    axis.line.y = ggplot2::element_blank(),
-    strip.background = element_rect(fill = 'grey86', color = 'white')
-  ) 
-# scale_color_manual('',values = structure(psME, names = psME))
-
-p <- p + facet_wrap(~module)
-
-data_subset <- data %>% ungroup() %>% distinct(parentTerm, .keep_all = T)
-
-p + ggrepel::geom_label_repel(aes(label = parentTerm), 
-  data = data_subset,
-  # max.overlaps = 5,
-  box.padding = grid::unit(1, "lines"), size = 3) +
-  labs(x = 'Dimension 1', y = 'Dimension 2') -> p
-
-p + theme(legend.position = 'none')
+data %>% count(module)
+# 
+# p <- ggplot2::ggplot(data, aes(x = V1, y = V2, 
+#   color = as.factor(cluster))) +
+#   ggplot2::geom_point(ggplot2::aes(size = size), alpha = 0.5) + 
+#   ggplot2::scale_size_continuous(range = c(0, 10)) +
+#   # ggplot2::scale_x_continuous(name = "") + 
+#   # ggplot2::scale_y_continuous(name = "") + 
+#   ggplot2::theme_bw(base_family='GillSans', base_size = 14) + 
+#   ggplot2::theme(legend.position = 'top',
+#     axis.line.x = ggplot2::element_blank(), 
+#     axis.line.y = ggplot2::element_blank(),
+#     strip.background = element_rect(fill = 'grey86', color = 'white'),
+#     panel.border = element_blank()
+#   ) 
+# 
+# p <- p + facet_wrap(~module)
+# 
+# data_subset <- data %>% distinct(parentTerm, .keep_all = T)
+# 
+# p + ggrepel::geom_text_repel(aes(label = parentTerm), 
+#   data = data_subset,
+#   family = 'GillSans',
+#   max.overlaps = 10,
+#   box.padding = grid::unit(1, "lines"), size = 5) +
+#   labs(x = 'Dimension 1', y = 'Dimension 2') -> p
+# 
+# p + theme(legend.position = 'none') + ggsci::scale_color_jco() -> psave
+# 
+# filename <- paste0(paste(psME, collapse = '_'), '_reduceSimGO.png')
+# 
+# ggsave(psave, path = path, filename = filename, 
+#   width = 12, height = 10, dpi = 1000) # 
+# 
+# data_subset %>%
+#   # filter(size > 0) %>%
+#   group_by(module) %>%
+#   arrange(desc(size)) %>%
+#   mutate(parentTerm = fct_reorder(parentTerm, size, .desc = F)) %>%
+#   ggplot(aes(y = size, x = parentTerm)) +
+#   geom_col() +
+#   coord_flip() +
+#   labs(x = 'GO parentTerm (top 20)') +
+#   facet_grid(module ~ ., scales = 'free') +
+#   theme_classic(base_family = "GillSans") +
+#   theme(strip.background = element_rect(fill = 'grey86', color = 'white'),
+#     panel.border = element_blank(), legend.position = 'top') -> p
+# 
+# filename <- paste0(paste(psME, collapse = '_'), '_reduceSimGO_nodes.png')
+# 
+# ggsave(p, path = path, filename = filename, 
+#   width = 5, height = 5, dpi = 1000) 
 
 # Data viz net ----
+
+# g %>% activate("nodes") %>% as_tibble() -> nodeInfo
 # 
-# g %>% activate('nodes') %>% 
-#   mutate(col = ifelse(genus %in% 'Arabidopsis', 'Arabidopsis', domain)) -> g
-# 
-# g %>%
-#   mutate(genus = ifelse(genus %in% ".", '', genus),
-#     domain = ifelse(genus %in% ".", '', domain)) -> g
+# nodeInfo %>%
+#   group_by(module) %>%
+#   drop_na(go) %>%
+#   summarise(sem(unlist(go))) -> df
+
+df <- read_csv(paste0(path, paste(psME, collapse = '_'), '_reduceSimGO_nodes.csv'))
+g <- read_rds(paste0(path, paste(psME, collapse = '_'), '_network.rds'))
+
+g %>% activate('nodes') %>% left_join(df %>% select(nodeName, parentTerm)) -> g
+
+g %>% activate('edges') %>% filter(!is.na(weight)) -> g
+
+g %>% activate('nodes') %>% as_tibble() %>% count(module)
+
+g %>%
+  activate('nodes') %>%
+  mutate(hub = centrality_hub(),
+    degree = centrality_degree(),
+    eigen = centrality_eigen(),
+    pageR = centrality_pagerank()) -> g
+
+hist(V(g)$pageR)
+
+degree_f <- function(x) {quantile(x, probs = 0.95)}
+
+
+g %>% activate('nodes') %>% 
+  group_by(module) %>%
+  mutate(nodeName = ifelse(hub > degree_f(hub), nodeName, NA)) %>%
+  as_tibble() %>% drop_na(nodeName) %>% count(module) 
+
+g %>% activate('nodes') %>% 
+  group_by(module) %>%
+  mutate(nodeName = ifelse(hub > degree_f(hub), nodeName, NA)) %>%
+  ungroup() %>%
+  filter(!is.na(nodeName)) -> g
 
 layout = create_layout(g, layout = 'igraph', algorithm = 'kk')
+# layout = create_layout(g, layout = 'igraph', algorithm = 'star')
 
-g %>% activate('nodes') %>% distinct(module) %>% pull() -> nodeColor
+# g %>% activate('nodes') %>% distinct(module) %>% pull() -> nodeColor
+
 
 ggraph(layout) +
-  # geom_edge_arc(aes(edge_alpha = weight, color = type), strength = 0.1,) + # edge_width
-  geom_node_point(aes(color = col, size = degree)) + 
-  geom_node_text(aes(label = genus), repel = TRUE, size = 2) +
+  facet_nodes(~ module) +
+  scale_color_manual('', values = structure(psME, names = psME) ) +
+  geom_edge_arc(aes(edge_alpha = weight), strength = 0.1) + # edge_width
+  geom_node_point(aes(color = module, size = pageR)) +
+  # geom_node_text(aes(label = parentTerm), repel = TRUE, size = 2) +
+  ggrepel::geom_text_repel(data = layout, aes(x, y, label = parentTerm))
   scale_edge_width(range = c(0.3, 1)) +
   theme_graph(base_family = "GillSans") +
   guides(fill=guide_legend(nrow = 2)) +

@@ -14,7 +14,6 @@ options(stringsAsFactors = FALSE) #
 
 path <- "~/Downloads/CORAL/"
 
-egg_df <- read_rds(paste0(path, 'trinotate_eggnog.rds'))
 blastp <- readRDS(paste0(path, 'blastp.rds'))
 allData_df <- readRDS(paste0(path,'allData_df.rds'))
 load(paste0(path, 'moduleTraitRelationship.RData'))

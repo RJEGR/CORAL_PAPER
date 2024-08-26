@@ -11,5 +11,5 @@ Pocillopora grandis; coral holobiont; symbiosis; stress indicators; co-expressio
 
 
 # Reference
-Juárez, O. E., Morales-Guerrero, B., Liñán-Cabello, M. A., Carpizo-Ituarte, E., Delgadillo-Nuño, E., Delgadillo-Nuño, M. A., ... & Galindo-Sánchez, C. E. (2024). Transcriptome characterization of Pocillopora grandis transplanted into reefs with different health conditions: potential stress indicators at the holobiont level. Latin american journal of aquatic research, 52(1), 119-149. 10.3856/vol52-issue1-fulltext-2991 
+Juárez, O. E., Morales-Guerrero, B., Liñán-Cabello, M. A., Carpizo-Ituarte, E., Delgadillo-Nuño, E., Delgadillo-Nuño, M. A., ... & Galindo-Sánchez, C. E. (2024). Transcriptome characterization of Pocillopora grandis transplanted into reefs with different health conditions: potential stress indicators at the holobiont level. Latin american journal of aquatic research, 52(1), 119-149 [10.3856/vol52-issue1-fulltext-2991](http://dx.doi.org/10.3856/vol52-issue1-fulltext-2991) 
 
